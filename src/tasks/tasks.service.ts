@@ -1,0 +1,182 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { InjectQueue } from '@nestjs/bull';
+import { Model } from 'mongoose';
+import { Queue } from 'bull';
+import { Task, TaskDocument, TaskStatus } from './entities/task.entity';
+import { CreateTaskDto, CreateTaskFromUrlDto } from './dto/create-task.dto';
+import {
+  TaskResponseDto,
+  CreateTaskResponseDto,
+} from './dto/task-response.dto';
+
+@Injectable()
+export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
+  constructor(
+    @InjectModel(Task.name) private taskModel: Model<TaskDocument>,
+    @InjectQueue('image-processing') private imageProcessingQueue: Queue,
+  ) {}
+
+  /**
+   * Create a new image processing task from local path
+   */
+  async createTask(
+    createTaskDto: CreateTaskDto,
+  ): Promise<CreateTaskResponseDto> {
+    try {
+      // Generate random price between 5 and 50
+      const price = Math.round((Math.random() * 45 + 5) * 100) / 100;
+
+      // Create task in database
+      const task = new this.taskModel({
+        originalPath: createTaskDto.originalPath,
+        price,
+        status: TaskStatus.PENDING,
+        images: [],
+      });
+
+      const savedTask = await task.save();
+      this.logger.log(`Task created with ID: ${savedTask._id}`);
+
+      // Add job to processing queue
+      await this.imageProcessingQueue.add('process-image', {
+        taskId: savedTask._id.toString(),
+        originalPath: createTaskDto.originalPath,
+      });
+
+      this.logger.log(`Job added to queue for task: ${savedTask._id}`);
+
+      return {
+        taskId: savedTask._id.toString(),
+        status: savedTask.status,
+        price: savedTask.price,
+      };
+    } catch (error) {
+      this.logger.error(`Error creating task: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new image processing task from URL
+   */
+  async createTaskFromUrl(
+    createTaskFromUrlDto: CreateTaskFromUrlDto,
+  ): Promise<CreateTaskResponseDto> {
+    try {
+      // Generate random price between 5 and 50
+      const price = Math.round((Math.random() * 45 + 5) * 100) / 100;
+
+      // Create task in database
+      const task = new this.taskModel({
+        originalPath: createTaskFromUrlDto.imageUrl,
+        price,
+        status: TaskStatus.PENDING,
+        images: [],
+      });
+
+      const savedTask = await task.save();
+      this.logger.log(`Task created from URL with ID: ${savedTask._id}`);
+
+      // Add job to processing queue
+      await this.imageProcessingQueue.add('process-image-from-url', {
+        taskId: savedTask._id.toString(),
+        imageUrl: createTaskFromUrlDto.imageUrl,
+      });
+
+      this.logger.log(
+        `URL processing job added to queue for task: ${savedTask._id}`,
+      );
+
+      return {
+        taskId: savedTask._id.toString(),
+        status: savedTask.status,
+        price: savedTask.price,
+      };
+    } catch (error) {
+      this.logger.error(`Error creating task from URL: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get task by ID
+   */
+  async getTaskById(taskId: string): Promise<TaskResponseDto | null> {
+    try {
+      const task = await this.taskModel.findById(taskId).exec();
+
+      if (!task) {
+        return null;
+      }
+
+      return {
+        taskId: task._id.toString(),
+        status: task.status,
+        price: task.price,
+        images: task.images,
+        errorMessage: task.errorMessage,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      };
+    } catch (error) {
+      this.logger.error(`Error retrieving task ${taskId}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all tasks
+   */
+  async getAllTasks(): Promise<TaskResponseDto[]> {
+    try {
+      const tasks = await this.taskModel.find().sort({ createdAt: -1 }).exec();
+
+      return tasks.map((task) => ({
+        taskId: task._id.toString(),
+        status: task.status,
+        price: task.price,
+        images: task.images,
+        errorMessage: task.errorMessage,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+      }));
+    } catch (error) {
+      this.logger.error(`Error retrieving all tasks: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Update task status
+   */
+  async updateTaskStatus(
+    taskId: string,
+    status: TaskStatus,
+    images?: any[],
+    errorMessage?: string,
+  ): Promise<void> {
+    try {
+      const updateData: any = {
+        status,
+        updatedAt: new Date(),
+      };
+
+      if (images) {
+        updateData.images = images;
+      }
+
+      if (errorMessage) {
+        updateData.errorMessage = errorMessage;
+      }
+
+      await this.taskModel.findByIdAndUpdate(taskId, updateData).exec();
+      this.logger.log(`Task ${taskId} status updated to: ${status}`);
+    } catch (error) {
+      this.logger.error(`Error updating task ${taskId}: ${error.message}`);
+      throw error;
+    }
+  }
+}

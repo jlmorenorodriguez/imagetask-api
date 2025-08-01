@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { BullModule } from '@nestjs/bull';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
@@ -25,6 +26,9 @@ import { AppService } from './app.service';
         port: parseInt(process.env.REDIS_PORT) || 6379,
       },
     }),
+
+    // Feature modules
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [AppService],
