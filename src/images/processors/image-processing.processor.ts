@@ -3,8 +3,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Job } from 'bull';
 import { Model } from 'mongoose';
+import {
+  Task,
+  TaskDocument,
+  TaskStatus,
+} from '../../tasks/entities/task.entity';
 import { ImageProcessingService } from '../../images/services/image-processing.service';
-import { Task, TaskDocument, TaskStatus } from '@/tasks/entities/task.entity';
 
 interface ProcessImageJob {
   taskId: string;
@@ -164,29 +168,6 @@ export class ImageProcessingProcessor {
         `Error updating task ${taskId} status: ${error.message}`,
       );
       throw error;
-    }
-  }
-
-  /**
-   * Handle job failure
-   */
-  @Process('process-image')
-  @Process('process-image-from-url')
-  async handleJobFailure(job: Job, error: Error): Promise<void> {
-    const taskId = job.data.taskId;
-    this.logger.error(`Job failed for task ${taskId}: ${error.message}`);
-
-    try {
-      await this.updateTaskStatus(
-        taskId,
-        TaskStatus.FAILED,
-        undefined,
-        `Job processing failed: ${error.message}`,
-      );
-    } catch (updateError) {
-      this.logger.error(
-        `Failed to update task status after job failure: ${updateError.message}`,
-      );
     }
   }
 }
