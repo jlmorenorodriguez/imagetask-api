@@ -4,7 +4,7 @@ import { InjectQueue } from '@nestjs/bull';
 import { Model } from 'mongoose';
 import { Queue } from 'bull';
 import { Task, TaskDocument, TaskStatus } from './entities/task.entity';
-import { CreateTaskDto, CreateTaskFromUrlDto } from './dto/create-task.dto';
+import { CreateTaskDto } from './dto/create-task.dto';
 import {
   TaskResponseDto,
   CreateTaskResponseDto,
@@ -20,7 +20,7 @@ export class TasksService {
   ) {}
 
   /**
-   * Create a new image processing task from local path
+   * Create a new image processing task (supports both local paths and URLs)
    */
   async createTask(
     createTaskDto: CreateTaskDto,
@@ -40,13 +40,24 @@ export class TasksService {
       const savedTask = await task.save();
       this.logger.log(`Task created with ID: ${savedTask._id}`);
 
-      // Add job to processing queue
-      await this.imageProcessingQueue.add('process-image', {
-        taskId: savedTask._id.toString(),
-        originalPath: createTaskDto.originalPath,
-      });
+      // Determine if it's a URL or local path and add appropriate job to queue
+      const isUrl = this.isValidUrl(createTaskDto.originalPath);
+      const jobType = isUrl ? 'process-image-from-url' : 'process-image';
+      const jobData = isUrl
+        ? {
+            taskId: savedTask._id.toString(),
+            imageUrl: createTaskDto.originalPath,
+          }
+        : {
+            taskId: savedTask._id.toString(),
+            originalPath: createTaskDto.originalPath,
+          };
 
-      this.logger.log(`Job added to queue for task: ${savedTask._id}`);
+      await this.imageProcessingQueue.add(jobType, jobData);
+
+      this.logger.log(
+        `${jobType} job added to queue for task: ${savedTask._id}`,
+      );
 
       return {
         taskId: savedTask._id.toString(),
@@ -60,44 +71,14 @@ export class TasksService {
   }
 
   /**
-   * Create a new image processing task from URL
+   * Check if string is a valid URL
    */
-  async createTaskFromUrl(
-    createTaskFromUrlDto: CreateTaskFromUrlDto,
-  ): Promise<CreateTaskResponseDto> {
+  private isValidUrl(string: string): boolean {
     try {
-      // Generate random price between 5 and 50
-      const price = Math.round((Math.random() * 45 + 5) * 100) / 100;
-
-      // Create task in database
-      const task = new this.taskModel({
-        originalPath: createTaskFromUrlDto.imageUrl,
-        price,
-        status: TaskStatus.PENDING,
-        images: [],
-      });
-
-      const savedTask = await task.save();
-      this.logger.log(`Task created from URL with ID: ${savedTask._id}`);
-
-      // Add job to processing queue
-      await this.imageProcessingQueue.add('process-image-from-url', {
-        taskId: savedTask._id.toString(),
-        imageUrl: createTaskFromUrlDto.imageUrl,
-      });
-
-      this.logger.log(
-        `URL processing job added to queue for task: ${savedTask._id}`,
-      );
-
-      return {
-        taskId: savedTask._id.toString(),
-        status: savedTask.status,
-        price: savedTask.price,
-      };
-    } catch (error) {
-      this.logger.error(`Error creating task from URL: ${error.message}`);
-      throw error;
+      const url = new URL(string);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+      return false;
     }
   }
 

@@ -17,7 +17,7 @@ import {
   ApiNotFoundResponse,
 } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
-import { CreateTaskDto, CreateTaskFromUrlDto } from './dto/create-task.dto';
+import { CreateTaskDto } from './dto/create-task.dto';
 import {
   TaskResponseDto,
   CreateTaskResponseDto,
@@ -33,7 +33,7 @@ export class TasksController {
   @ApiOperation({
     summary: 'Create a new image processing task',
     description:
-      'Creates a new task for image processing with a randomly assigned price',
+      'Creates a new task for image processing. Accepts both local file paths and HTTP URLs.',
   })
   @ApiResponse({
     status: 201,
@@ -41,33 +41,12 @@ export class TasksController {
     type: CreateTaskResponseDto,
   })
   @ApiBadRequestResponse({
-    description: 'Invalid input data',
+    description: 'Invalid input data or unsupported image format',
   })
   async createTask(
     @Body() createTaskDto: CreateTaskDto,
   ): Promise<CreateTaskResponseDto> {
     return this.tasksService.createTask(createTaskDto);
-  }
-
-  @Post('from-url')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({
-    summary: 'Create a new image processing task from URL',
-    description:
-      'Creates a new task for image processing by downloading from URL',
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Task created successfully from URL',
-    type: CreateTaskResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Invalid URL or unsupported image format',
-  })
-  async createTaskFromUrl(
-    @Body() createTaskFromUrlDto: CreateTaskFromUrlDto,
-  ): Promise<CreateTaskResponseDto> {
-    return this.tasksService.createTaskFromUrl(createTaskFromUrlDto);
   }
 
   @Get(':taskId')
