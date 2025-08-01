@@ -5,6 +5,7 @@ import { BullModule } from '@nestjs/bull';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TasksModule } from './tasks/tasks.module';
+import { ImagesModule } from './images/images.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { TasksModule } from './tasks/tasks.module';
 
     // Feature modules
     TasksModule,
+    ImagesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
