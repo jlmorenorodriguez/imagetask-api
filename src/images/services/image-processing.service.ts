@@ -41,7 +41,6 @@ export class ImageProcessingService {
 
       // Read original image
       const imageBuffer = await this.fileStorageService.readFile(originalPath);
-      const extension = this.fileStorageService.getFileExtension(originalPath);
 
       // Validate image format
       const validationResult = await this.validateImageBuffer(imageBuffer);
@@ -50,7 +49,7 @@ export class ImageProcessingService {
       }
 
       // Process variants
-      return await this.processImageVariants(taskId, imageBuffer, extension);
+      return await this.processImageVariants(taskId, imageBuffer);
     } catch (error) {
       this.logger.error(`Error processing image from path: ${error.message}`);
       return { success: false, error: `Processing failed: ${error.message}` };
@@ -75,7 +74,7 @@ export class ImageProcessingService {
       }
 
       // Download image
-      const { buffer: imageBuffer, extension } =
+      const { buffer: imageBuffer } =
         await this.imageDownloadService.downloadImage(imageUrl);
 
       // Validate downloaded image
@@ -85,7 +84,7 @@ export class ImageProcessingService {
       }
 
       // Process variants
-      return await this.processImageVariants(taskId, imageBuffer, extension);
+      return await this.processImageVariants(taskId, imageBuffer);
     } catch (error) {
       this.logger.error(`Error processing image from URL: ${error.message}`);
       return {
@@ -101,7 +100,6 @@ export class ImageProcessingService {
   private async processImageVariants(
     taskId: string,
     originalBuffer: Buffer,
-    extension: string,
   ): Promise<ProcessingResult> {
     try {
       const images: ImageVariant[] = [];
