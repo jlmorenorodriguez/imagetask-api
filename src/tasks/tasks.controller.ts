@@ -6,7 +6,6 @@ import {
   Param,
   HttpCode,
   HttpStatus,
-  NotFoundException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -68,12 +67,11 @@ export class TasksController {
   @ApiNotFoundResponse({
     description: 'Task not found',
   })
+  @ApiBadRequestResponse({
+    description: 'Invalid task ID format',
+  })
   async getTaskById(@Param('taskId') taskId: string): Promise<TaskResponseDto> {
-    const task = await this.tasksService.getTaskById(taskId);
-    if (!task) {
-      throw new NotFoundException(`Task with ID ${taskId} not found`);
-    }
-    return task;
+    return await this.tasksService.getTaskById(taskId);
   }
 
   @Get()

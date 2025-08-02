@@ -1,7 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { InjectQueue } from '@nestjs/bull';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Queue } from 'bull';
 import { Task, TaskDocument, TaskStatus } from './entities/task.entity';
 import { CreateTaskDto } from './dto/create-task.dto';
@@ -87,11 +92,21 @@ export class TasksService {
    */
   async getTaskById(taskId: string): Promise<TaskResponseDto | null> {
     try {
-      const task = await this.taskModel.findById(taskId).exec();
+      // Validate ObjectId format first
+      if (!Types.ObjectId.isValid(taskId)) {
+        throw new BadRequestException('Invalid format ID');
+      }
+
+      this.logger.log(`Searching for task with ID: ${taskId}`);
+
+      const task = await this.taskModel.findOne({ _id: taskId }).lean().exec();
 
       if (!task) {
-        return null;
+        this.logger.log(`Task not found: ${taskId}`);
+        throw new NotFoundException(`Task not found: ${taskId}`);
       }
+
+      this.logger.log(`Task found successfully: ${taskId}`);
 
       return {
         taskId: task._id.toString(),
@@ -104,7 +119,21 @@ export class TasksService {
       };
     } catch (error) {
       this.logger.error(`Error retrieving task ${taskId}: ${error.message}`);
-      throw error;
+
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+
+      // Handle specific Mongoose errors
+      if (error.name === 'CastError') {
+        throw new BadRequestException('Error in task ID format');
+      }
+
+      // Handle any other unexpected errors
+      throw new BadRequestException('Internal error processing request');
     }
   }
 
@@ -140,6 +169,11 @@ export class TasksService {
     errorMessage?: string,
   ): Promise<void> {
     try {
+      // Validate ObjectId format
+      if (!Types.ObjectId.isValid(taskId)) {
+        throw new Error(`Invalid ObjectId format: ${taskId}`);
+      }
+
       const updateData: any = {
         status,
         updatedAt: new Date(),
@@ -153,7 +187,15 @@ export class TasksService {
         updateData.errorMessage = errorMessage;
       }
 
-      await this.taskModel.findByIdAndUpdate(taskId, updateData).exec();
+      const result = await this.taskModel
+        .findByIdAndUpdate(taskId, updateData)
+        .exec();
+
+      if (!result) {
+        this.logger.warn(`Task not found for update: ${taskId}`);
+        throw new Error(`Task not found: ${taskId}`);
+      }
+
       this.logger.log(`Task ${taskId} status updated to: ${status}`);
     } catch (error) {
       this.logger.error(`Error updating task ${taskId}: ${error.message}`);

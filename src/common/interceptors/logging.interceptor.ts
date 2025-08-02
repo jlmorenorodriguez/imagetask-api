@@ -26,16 +26,19 @@ export class LoggingInterceptor implements NestInterceptor {
     const requestId = this.generateRequestId();
     request.headers['x-request-id'] = requestId;
 
-    this.logger.log(`Incoming Request: ${method} ${url}`, {
-      requestId,
-      method,
-      url,
-      ip,
-      userAgent,
-      body: this.sanitizeBody(request.body),
-      query: request.query,
-      params: request.params,
-    });
+    // Cambio aquí: usar JSON.stringify para el objeto
+    this.logger.log(
+      `Incoming Request: ${method} ${url} - ${JSON.stringify({
+        requestId,
+        method,
+        url,
+        ip,
+        userAgent,
+        body: this.sanitizeBody(request.body),
+        query: request.query,
+        params: request.params,
+      })}`,
+    );
 
     return next.handle().pipe(
       tap((data) => {
@@ -43,31 +46,35 @@ export class LoggingInterceptor implements NestInterceptor {
         const statusCode = response.statusCode;
 
         this.logger.log(
-          `Outgoing Response: ${method} ${url} - ${statusCode} - ${duration}ms`,
-          {
-            requestId,
-            method,
-            url,
-            statusCode,
-            duration,
-            responseSize: this.getResponseSize(data),
-          },
+          `Outgoing Response: ${method} ${url} - ${statusCode} - ${duration}ms - ${JSON.stringify(
+            {
+              requestId,
+              responseSize: this.getResponseSize(data),
+            },
+          )}`,
         );
       }),
       catchError((error) => {
         const duration = Date.now() - startTime;
 
-        this.logger.error(`Request Error: ${method} ${url} - ${duration}ms`, {
-          requestId,
-          method,
-          url,
-          duration,
-          error: {
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-          },
-        });
+        this.logger.error(
+          `Request Error: ${method} ${url} - ${duration}ms`,
+          error.stack,
+        );
+
+        this.logger.error(
+          JSON.stringify({
+            requestId,
+            method,
+            url,
+            duration,
+            error: {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+            },
+          }),
+        );
 
         throw error;
       }),
