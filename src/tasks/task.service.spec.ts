@@ -4,6 +4,8 @@ import { getQueueToken } from '@nestjs/bull';
 import { TasksService } from './tasks.service';
 import { Task, TaskStatus } from './entities/task.entity';
 import { CreateTaskDto } from './dto/create-task.dto';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Types } from 'mongoose';
 
 describe('TasksService', () => {
   let service: TasksService;
@@ -37,6 +39,11 @@ describe('TasksService', () => {
     mockTaskModel.find = jest.fn();
     mockTaskModel.findById = jest.fn();
     mockTaskModel.findByIdAndUpdate = jest.fn();
+    mockTaskModel.findOne = jest.fn().mockReturnValue({
+      lean: jest.fn().mockReturnValue({
+        exec: jest.fn(),
+      }),
+    });
 
     // Mock Bull Queue
     mockQueue = {
@@ -123,15 +130,20 @@ describe('TasksService', () => {
       const taskId = '507f1f77bcf86cd799439011';
       const mockFoundTask = {
         ...mockTask,
-        _id: { toString: () => taskId },
+        _id: new Types.ObjectId(taskId), // Use proper ObjectId
       };
 
-      mockTaskModel.findById.mockReturnValue({
+      // Mock the chain: findOne().lean().exec()
+      const mockLean = jest.fn().mockReturnValue({
         exec: jest.fn().mockResolvedValue(mockFoundTask),
+      });
+      mockTaskModel.findOne.mockReturnValue({
+        lean: mockLean,
       });
 
       const result = await service.getTaskById(taskId);
 
+      expect(mockTaskModel.findOne).toHaveBeenCalledWith({ _id: taskId });
       expect(result).toEqual({
         taskId,
         status: TaskStatus.PENDING,
@@ -143,27 +155,75 @@ describe('TasksService', () => {
       });
     });
 
-    it('should return null when task not found', async () => {
+    it('should throw NotFoundException when task not found', async () => {
       const taskId = '507f1f77bcf86cd799439011';
 
-      mockTaskModel.findById.mockReturnValue({
+      // Mock the chain to return null
+      const mockLean = jest.fn().mockReturnValue({
         exec: jest.fn().mockResolvedValue(null),
       });
-
-      const result = await service.getTaskById(taskId);
-
-      expect(result).toBeNull();
-    });
-
-    it('should handle database errors', async () => {
-      const taskId = '507f1f77bcf86cd799439011';
-
-      mockTaskModel.findById.mockReturnValue({
-        exec: jest.fn().mockRejectedValue(new Error('Database error')),
+      mockTaskModel.findOne.mockReturnValue({
+        lean: mockLean,
       });
 
       await expect(service.getTaskById(taskId)).rejects.toThrow(
-        'Database error',
+        NotFoundException,
+      );
+      await expect(service.getTaskById(taskId)).rejects.toThrow(
+        `Task not found: ${taskId}`,
+      );
+    });
+
+    it('should throw BadRequestException for invalid ObjectId format', async () => {
+      const invalidTaskId = 'invalid-id';
+
+      await expect(service.getTaskById(invalidTaskId)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.getTaskById(invalidTaskId)).rejects.toThrow(
+        'Invalid format ID',
+      );
+
+      // Verify that findOne is not called for invalid IDs
+      expect(mockTaskModel.findOne).not.toHaveBeenCalled();
+    });
+
+    it('should handle CastError from Mongoose', async () => {
+      const taskId = '507f1f77bcf86cd799439011';
+      const castError = new Error('Cast to ObjectId failed');
+      castError.name = 'CastError';
+
+      const mockLean = jest.fn().mockReturnValue({
+        exec: jest.fn().mockRejectedValue(castError),
+      });
+      mockTaskModel.findOne.mockReturnValue({
+        lean: mockLean,
+      });
+
+      await expect(service.getTaskById(taskId)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.getTaskById(taskId)).rejects.toThrow(
+        'Error in task ID format',
+      );
+    });
+
+    it('should handle other database errors', async () => {
+      const taskId = '507f1f77bcf86cd799439011';
+      const dbError = new Error('Database connection error');
+
+      const mockLean = jest.fn().mockReturnValue({
+        exec: jest.fn().mockRejectedValue(dbError),
+      });
+      mockTaskModel.findOne.mockReturnValue({
+        lean: mockLean,
+      });
+
+      await expect(service.getTaskById(taskId)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.getTaskById(taskId)).rejects.toThrow(
+        'Internal error processing request',
       );
     });
   });

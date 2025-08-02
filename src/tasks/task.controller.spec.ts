@@ -93,10 +93,15 @@ describe('TasksController', () => {
     it('should throw NotFoundException when task not found', async () => {
       const taskId = '507f1f77bcf86cd799439011';
 
-      mockTasksService.getTaskById.mockResolvedValue(null);
+      mockTasksService.getTaskById.mockRejectedValue(
+        new NotFoundException(`Task not found: ${taskId}`),
+      );
 
       await expect(controller.getTaskById(taskId)).rejects.toThrow(
-        new NotFoundException(`Task with ID ${taskId} not found`),
+        NotFoundException,
+      );
+      await expect(controller.getTaskById(taskId)).rejects.toThrow(
+        `Task not found: ${taskId}`,
       );
     });
 
