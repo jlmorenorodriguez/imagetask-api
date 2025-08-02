@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TasksModule } from './tasks/tasks.module';
 import { ImagesModule } from './images/images.module';
+import { CommonModule } from './common/common.module';
 
 @Module({
   imports: [
@@ -27,6 +28,9 @@ import { ImagesModule } from './images/images.module';
         port: parseInt(process.env.REDIS_PORT) || 6379,
       },
     }),
+
+    // Common module with global filters and interceptors
+    CommonModule,
 
     // Feature modules
     TasksModule,
