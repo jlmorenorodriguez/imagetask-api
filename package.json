@@ -1,6 +1,6 @@
 {
   "name": "imagetask-api",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "API REST for image processing and task management",
   "author": "jlmorenorodriguez",
   "private": true,
