@@ -4,11 +4,15 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { RateLimitMiddleware } from './common/middleware/rate-limit.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.useGlobalFilters(new AllExceptionsFilter(), new HttpExceptionFilter());
+
+  app.use(new RateLimitMiddleware().use.bind(new RateLimitMiddleware()));
+
   // Global validation pipe with enhanced configuration
   app.useGlobalPipes(
     new ValidationPipe({
