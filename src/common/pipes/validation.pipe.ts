@@ -4,26 +4,51 @@ import {
   Injectable,
   PipeTransform,
   Logger,
+  Type,
 } from '@nestjs/common';
-import { validate } from 'class-validator';
-import { plainToClass } from 'class-transformer';
+import { validate, ValidationError, ValidatorOptions } from 'class-validator';
+import { plainToClass, ClassConstructor } from 'class-transformer';
+
+/**
+ * Interface for validation error response
+ */
+interface ValidationErrorResponse {
+  message: string;
+  errors: string[];
+  statusCode: number;
+}
+
+/**
+ * Type for basic JavaScript constructor types
+ */
+type BasicType =
+  | StringConstructor
+  | BooleanConstructor
+  | NumberConstructor
+  | ArrayConstructor
+  | ObjectConstructor;
 
 @Injectable()
-export class CustomValidationPipe implements PipeTransform<any> {
+export class CustomValidationPipe implements PipeTransform<unknown, unknown> {
   private readonly logger = new Logger(CustomValidationPipe.name);
 
-  async transform(value: any, { metatype }: ArgumentMetadata) {
+  async transform(
+    value: unknown,
+    { metatype }: ArgumentMetadata,
+  ): Promise<unknown> {
     if (!metatype || !this.toValidate(metatype)) {
       return value;
     }
 
-    const object = plainToClass(metatype, value);
+    const object = plainToClass(metatype as ClassConstructor<object>, value, {
+      enableImplicitConversion: true,
+    });
+
     const errors = await validate(object, {
       whitelist: true,
       forbidNonWhitelisted: true,
-      transform: true,
       validateCustomDecorators: true,
-    });
+    } as ValidatorOptions);
 
     if (errors.length > 0) {
       const errorMessages = this.formatErrors(errors);
@@ -34,33 +59,35 @@ export class CustomValidationPipe implements PipeTransform<any> {
         metatype: metatype.name,
       });
 
-      throw new BadRequestException({
+      const errorResponse: ValidationErrorResponse = {
         message: 'Validation failed',
         errors: errorMessages,
         statusCode: 400,
-      });
+      };
+
+      throw new BadRequestException(errorResponse);
     }
 
     return object;
   }
 
-  private toValidate(metatype: any): boolean {
-    const types: any[] = [String, Boolean, Number, Array, Object];
-    return !types.includes(metatype);
+  private toValidate(metatype: Type<unknown> | undefined): boolean {
+    const types: BasicType[] = [String, Boolean, Number, Array, Object];
+    return !types.includes(metatype as BasicType);
   }
 
-  private formatErrors(errors: any[]): string[] {
+  private formatErrors(errors: ValidationError[]): string[] {
     return errors
-      .map((error) => {
+      .map((error: ValidationError) => {
         const constraints = error.constraints;
         const messages = Object.values(constraints || {}) as string[];
 
         if (error.children && error.children.length > 0) {
           const childMessages = this.formatErrors(error.children);
-          return childMessages.map((msg) => `${error.property}.${msg}`);
+          return childMessages.map((msg: string) => `${error.property}.${msg}`);
         }
 
-        return messages.map((msg) => `${error.property}: ${msg}`);
+        return messages.map((msg: string) => `${error.property}: ${msg}`);
       })
       .flat();
   }
