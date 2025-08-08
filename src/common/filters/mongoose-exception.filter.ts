@@ -9,6 +9,124 @@ import { Request, Response } from 'express';
 import { Error as MongooseError } from 'mongoose';
 import { ErrorResponse } from './http-exception.filter';
 
+/**
+ * Interface for Mongoose CastError
+ */
+interface MongooseCastError extends MongooseError {
+  name: 'CastError';
+  path: string;
+  value: unknown;
+  kind: string;
+  model?: {
+    modelName: string;
+  };
+}
+
+/**
+ * Interface for Mongoose ValidationError details
+ */
+interface ValidationErrorDetails {
+  message: string;
+  path: string;
+  value: unknown;
+  kind?: string;
+}
+
+/**
+ * Interface for Mongoose ValidationError
+ */
+interface MongooseValidationError extends MongooseError {
+  name: 'ValidationError';
+  errors: Record<string, ValidationErrorDetails>;
+}
+
+/**
+ * Interface for Mongoose DocumentNotFoundError
+ */
+interface MongooseDocumentNotFoundError extends MongooseError {
+  name: 'DocumentNotFoundError';
+  query: Record<string, unknown>;
+  model: {
+    modelName: string;
+  };
+}
+
+/**
+ * Interface for Mongoose VersionError
+ */
+interface MongooseVersionError extends MongooseError {
+  name: 'VersionError';
+  version: number;
+  modifiedPaths: string[];
+}
+
+/**
+ * Interface for Mongoose OverwriteModelError
+ */
+interface MongooseOverwriteModelError extends MongooseError {
+  name: 'OverwriteModelError';
+  model: string;
+}
+
+/**
+ * Interface for Mongoose MissingSchemaError
+ */
+interface MongooseMissingSchemaError extends MongooseError {
+  name: 'MissingSchemaError';
+  model: string;
+}
+
+/**
+ * Interface for Mongoose DivergentArrayError
+ */
+interface MongooseDivergentArrayError extends MongooseError {
+  name: 'DivergentArrayError';
+  path: string;
+}
+
+/**
+ * Union type for all known Mongoose errors
+ */
+type KnownMongooseError =
+  | MongooseCastError
+  | MongooseValidationError
+  | MongooseDocumentNotFoundError
+  | MongooseVersionError
+  | MongooseOverwriteModelError
+  | MongooseMissingSchemaError
+  | MongooseDivergentArrayError;
+
+/**
+ * Interface for Mongoose error details in logs
+ */
+interface MongooseErrorDetails {
+  name: string;
+  path?: string;
+  value?: unknown;
+  kind?: string;
+  model?: string;
+  query?: Record<string, unknown>;
+  version?: number;
+  modifiedPaths?: string[];
+}
+
+/**
+ * Interface for error handling result
+ */
+interface ErrorHandlingResult {
+  status: number;
+  message: string;
+  error: string;
+}
+
+/**
+ * Interface for error log context
+ */
+interface MongooseErrorLogContext extends ErrorResponse {
+  stack?: string;
+  mongooseError: MongooseErrorDetails;
+}
+
 @Catch(MongooseError)
 export class MongooseExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(MongooseExceptionFilter.name);
@@ -29,28 +147,21 @@ export class MongooseExceptionFilter implements ExceptionFilter {
       error,
     };
 
+    const logContext: MongooseErrorLogContext = {
+      ...errorResponse,
+      stack: exception.stack,
+      mongooseError: this.extractMongooseErrorDetails(exception),
+    };
+
     this.logger.error(
       `Mongoose Error: ${exception.name} - ${exception.message}`,
-      {
-        ...errorResponse,
-        stack: exception.stack,
-        mongooseError: {
-          name: exception.name,
-          path: (exception as any).path,
-          value: (exception as any).value,
-          kind: (exception as any).kind,
-        },
-      },
+      logContext,
     );
 
     response.status(status).json(errorResponse);
   }
 
-  private handleMongooseError(exception: MongooseError): {
-    status: number;
-    message: string;
-    error: string;
-  } {
+  private handleMongooseError(exception: MongooseError): ErrorHandlingResult {
     switch (exception.name) {
       case 'CastError':
         return {
@@ -60,9 +171,9 @@ export class MongooseExceptionFilter implements ExceptionFilter {
         };
 
       case 'ValidationError':
-        const validationError = exception as MongooseError.ValidationError;
+        const validationError = exception as MongooseValidationError;
         const messages = Object.values(validationError.errors).map(
-          (err) => err.message,
+          (err: ValidationErrorDetails) => err.message,
         );
         return {
           status: HttpStatus.BAD_REQUEST,
@@ -112,5 +223,100 @@ export class MongooseExceptionFilter implements ExceptionFilter {
           error: 'Internal Server Error',
         };
     }
+  }
+
+  private extractMongooseErrorDetails(
+    exception: MongooseError,
+  ): MongooseErrorDetails {
+    const baseDetails: MongooseErrorDetails = {
+      name: exception.name,
+    };
+
+    if (this.isCastError(exception)) {
+      return {
+        ...baseDetails,
+        path: exception.path,
+        value: exception.value,
+        kind: exception.kind,
+        model: exception.model?.modelName,
+      };
+    }
+
+    if (this.isDocumentNotFoundError(exception)) {
+      return {
+        ...baseDetails,
+        query: exception.query,
+        model: exception.model.modelName,
+      };
+    }
+
+    if (this.isVersionError(exception)) {
+      return {
+        ...baseDetails,
+        version: exception.version,
+        modifiedPaths: exception.modifiedPaths,
+      };
+    }
+
+    if (this.isOverwriteModelError(exception)) {
+      return {
+        ...baseDetails,
+        model: exception.model,
+      };
+    }
+
+    if (this.isMissingSchemaError(exception)) {
+      return {
+        ...baseDetails,
+        model: exception.model,
+      };
+    }
+
+    if (this.isDivergentArrayError(exception)) {
+      return {
+        ...baseDetails,
+        path: exception.path,
+      };
+    }
+
+    return baseDetails;
+  }
+
+  private isCastError(error: MongooseError): error is MongooseCastError {
+    return error.name === 'CastError';
+  }
+
+  private isValidationError(
+    error: MongooseError,
+  ): error is MongooseValidationError {
+    return error.name === 'ValidationError';
+  }
+
+  private isDocumentNotFoundError(
+    error: MongooseError,
+  ): error is MongooseDocumentNotFoundError {
+    return error.name === 'DocumentNotFoundError';
+  }
+
+  private isVersionError(error: MongooseError): error is MongooseVersionError {
+    return error.name === 'VersionError';
+  }
+
+  private isOverwriteModelError(
+    error: MongooseError,
+  ): error is MongooseOverwriteModelError {
+    return error.name === 'OverwriteModelError';
+  }
+
+  private isMissingSchemaError(
+    error: MongooseError,
+  ): error is MongooseMissingSchemaError {
+    return error.name === 'MissingSchemaError';
+  }
+
+  private isDivergentArrayError(
+    error: MongooseError,
+  ): error is MongooseDivergentArrayError {
+    return error.name === 'DivergentArrayError';
   }
 }
