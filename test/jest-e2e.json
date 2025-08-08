@@ -7,11 +7,13 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "collectCoverageFrom": [
-    "**/*.(t|j)s"
+    "src/**/*.(t|j)s",
+    "!src/**/*.spec.ts",
+    "!src/**/*.d.ts"
   ],
-  "coverageDirectory": "./coverage",
-  "moduleNameMapping": {
-    "^@/(.*)$": "<rootDir>/../src/$1"
-  },
-  "setupFilesAfterEnv": ["<rootDir>/setup.ts"]
+  "coverageDirectory": "../coverage-e2e",
+  "coverageReporters": ["text", "lcov", "html"],
+  "setupFilesAfterEnv": ["<rootDir>/setup-e2e.ts"],
+  "testTimeout": 30000,
+  "maxWorkers": 1
 }
