@@ -1,4 +1,5 @@
 import { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
+import { Request, Response, NextFunction } from 'express';
 
 /**
  * Configuration class for CORS settings
@@ -19,7 +20,11 @@ export class CorsConfig {
   /**
    * Security headers middleware function
    */
-  static securityHeadersMiddleware(req: any, res: any, next: any): void {
+  static securityHeadersMiddleware(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): void {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-XSS-Protection', '1; mode=block');
