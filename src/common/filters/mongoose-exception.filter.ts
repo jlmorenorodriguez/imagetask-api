@@ -85,18 +85,6 @@ interface MongooseDivergentArrayError extends MongooseError {
 }
 
 /**
- * Union type for all known Mongoose errors
- */
-type KnownMongooseError =
-  | MongooseCastError
-  | MongooseValidationError
-  | MongooseDocumentNotFoundError
-  | MongooseVersionError
-  | MongooseOverwriteModelError
-  | MongooseMissingSchemaError
-  | MongooseDivergentArrayError;
-
-/**
  * Interface for Mongoose error details in logs
  */
 interface MongooseErrorDetails {
