@@ -8,12 +8,55 @@ import { InjectModel } from '@nestjs/mongoose';
 import { InjectQueue } from '@nestjs/bull';
 import { Model, Types } from 'mongoose';
 import { Queue } from 'bull';
-import { Task, TaskDocument, TaskStatus } from './entities/task.entity';
+import {
+  ImageVariant,
+  Task,
+  TaskDocument,
+  TaskStatus,
+} from './entities/task.entity';
 import { CreateTaskDto } from './dto/create-task.dto';
 import {
   TaskResponseDto,
   CreateTaskResponseDto,
 } from './dto/task-response.dto';
+
+/**
+ * Interface for job data when processing local image files
+ */
+interface ProcessImageJobData {
+  taskId: string;
+  originalPath: string;
+}
+
+/**
+ * Interface for job data when processing images from URLs
+ */
+interface ProcessImageFromUrlJobData {
+  taskId: string;
+  imageUrl: string;
+}
+
+/**
+ * Union type for all possible job data types
+ */
+type ImageProcessingJobData = ProcessImageJobData | ProcessImageFromUrlJobData;
+
+/**
+ * Interface for task update data
+ */
+interface TaskUpdateData {
+  status: TaskStatus;
+  updatedAt: Date;
+  images?: ImageVariant[];
+  errorMessage?: string;
+}
+
+/**
+ * Interface for Mongoose error with name property
+ */
+interface MongooseError extends Error {
+  name: string;
+}
 
 @Injectable()
 export class TasksService {
@@ -47,16 +90,11 @@ export class TasksService {
 
       // Determine if it's a URL or local path and add appropriate job to queue
       const isUrl = this.isValidUrl(createTaskDto.originalPath);
-      const jobType = isUrl ? 'process-image-from-url' : 'process-image';
-      const jobData = isUrl
-        ? {
-            taskId: savedTask._id.toString(),
-            imageUrl: createTaskDto.originalPath,
-          }
-        : {
-            taskId: savedTask._id.toString(),
-            originalPath: createTaskDto.originalPath,
-          };
+      const { jobType, jobData } = this.createJobData(
+        savedTask._id.toString(),
+        createTaskDto.originalPath,
+        isUrl,
+      );
 
       await this.imageProcessingQueue.add(jobType, jobData);
 
@@ -70,8 +108,39 @@ export class TasksService {
         price: savedTask.price,
       };
     } catch (error) {
-      this.logger.error(`Error creating task: ${error.message}`);
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(`Error creating task: ${errorMessage}`);
       throw error;
+    }
+  }
+
+  /**
+   * Create job data based on whether the input is a URL or local path
+   */
+  private createJobData(
+    taskId: string,
+    originalPath: string,
+    isUrl: boolean,
+  ): {
+    jobType: string;
+    jobData: ImageProcessingJobData;
+  } {
+    if (isUrl) {
+      return {
+        jobType: 'process-image-from-url',
+        jobData: {
+          taskId,
+          imageUrl: originalPath,
+        },
+      };
+    } else {
+      return {
+        jobType: 'process-image',
+        jobData: {
+          taskId,
+          originalPath,
+        },
+      };
     }
   }
 
@@ -118,7 +187,8 @@ export class TasksService {
         updatedAt: task.updatedAt,
       };
     } catch (error) {
-      this.logger.error(`Error retrieving task ${taskId}: ${error.message}`);
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(`Error retrieving task ${taskId}: ${errorMessage}`);
 
       if (
         error instanceof BadRequestException ||
@@ -128,7 +198,7 @@ export class TasksService {
       }
 
       // Handle specific Mongoose errors
-      if (error.name === 'CastError') {
+      if (this.isMongooseError(error) && error.name === 'CastError') {
         throw new BadRequestException('Error in task ID format');
       }
 
@@ -154,7 +224,8 @@ export class TasksService {
         updatedAt: task.updatedAt,
       }));
     } catch (error) {
-      this.logger.error(`Error retrieving all tasks: ${error.message}`);
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(`Error retrieving all tasks: ${errorMessage}`);
       throw error;
     }
   }
@@ -165,7 +236,7 @@ export class TasksService {
   async updateTaskStatus(
     taskId: string,
     status: TaskStatus,
-    images?: any[],
+    images?: ImageVariant[],
     errorMessage?: string,
   ): Promise<void> {
     try {
@@ -174,7 +245,7 @@ export class TasksService {
         throw new Error(`Invalid ObjectId format: ${taskId}`);
       }
 
-      const updateData: any = {
+      const updateData: TaskUpdateData = {
         status,
         updatedAt: new Date(),
       };
@@ -198,8 +269,26 @@ export class TasksService {
 
       this.logger.log(`Task ${taskId} status updated to: ${status}`);
     } catch (error) {
-      this.logger.error(`Error updating task ${taskId}: ${error.message}`);
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(`Error updating task ${taskId}: ${errorMessage}`);
       throw error;
     }
+  }
+
+  /**
+   * Extract error message safely from unknown error
+   */
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
+
+  /**
+   * Type guard to check if error is a Mongoose error
+   */
+  private isMongooseError(error: unknown): error is MongooseError {
+    return error instanceof Error && 'name' in error;
   }
 }
