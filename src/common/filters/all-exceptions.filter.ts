@@ -9,11 +9,93 @@ import {
 import { Request, Response } from 'express';
 import { ErrorResponse } from './http-exception.filter';
 
+/**
+ * Interface for MongoDB error
+ */
+interface MongoError extends Error {
+  code?: number;
+}
+
+/**
+ * Interface for Mongoose validation error
+ */
+interface ValidationError extends Error {
+  name: 'ValidationError';
+  errors: Record<string, unknown>;
+}
+
+/**
+ * Interface for Mongoose cast error
+ */
+interface CastError extends Error {
+  name: 'CastError';
+  path: string;
+  value: unknown;
+}
+
+/**
+ * Interface for Node.js system errors
+ */
+interface NodeSystemError extends Error {
+  code: string;
+  errno?: number;
+  syscall?: string;
+  path?: string;
+}
+
+/**
+ * Interface for timeout errors
+ */
+interface TimeoutError extends Error {
+  name: 'TimeoutError';
+}
+
+/**
+ * Union type for all possible exceptions
+ */
+type KnownException =
+  | HttpException
+  | MongoError
+  | ValidationError
+  | CastError
+  | NodeSystemError
+  | TimeoutError
+  | Error;
+
+/**
+ * Interface for exception details in logs
+ */
+interface ExceptionDetails {
+  name?: string;
+  message?: string;
+  code?: string | number;
+}
+
+/**
+ * Interface for request details in logs
+ */
+interface RequestDetails {
+  ip: string;
+  userAgent: string | undefined;
+  body: Record<string, unknown>;
+  params: Record<string, unknown>;
+  query: Record<string, unknown>;
+}
+
+/**
+ * Interface for error log context
+ */
+interface ErrorLogContext extends ErrorResponse {
+  stack?: string;
+  exception: ExceptionDetails;
+  request: RequestDetails;
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
-  catch(exception: any, host: ArgumentsHost): void {
+  catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
@@ -23,8 +105,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return;
     }
 
-    const status = this.getHttpStatus(exception);
-    const message = this.getErrorMessage(exception);
+    const typedException = exception as KnownException;
+    const status = this.getHttpStatus(typedException);
+    const message = this.getErrorMessage(typedException);
 
     const errorResponse: ErrorResponse = {
       statusCode: status,
@@ -32,84 +115,91 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
       method: request.method,
       message,
-      error: exception.name || 'Internal Server Error',
+      error: typedException.name || 'Internal Server Error',
     };
 
     // Log critical errors with full context
-    this.logger.error(
-      `Unhandled Exception: ${exception.message || 'Unknown error'}`,
-      {
-        ...errorResponse,
-        stack: exception.stack,
-        exception: {
-          name: exception.name,
-          message: exception.message,
-          code: exception.code,
-        },
-        request: {
-          ip: request.ip,
-          userAgent: request.get('User-Agent'),
-          body: this.sanitizeRequestBody(request.body),
-          params: request.params,
-          query: request.query,
-        },
+    const logContext: ErrorLogContext = {
+      ...errorResponse,
+      stack: typedException.stack,
+      exception: {
+        name: typedException.name,
+        message: typedException.message,
+        code: this.getExceptionCode(typedException),
       },
+      request: {
+        ip: request.ip,
+        userAgent: request.get('User-Agent'),
+        body: this.sanitizeRequestBody(request.body),
+        params: request.params,
+        query: request.query,
+      },
+    };
+
+    this.logger.error(
+      `Unhandled Exception: ${typedException.message || 'Unknown error'}`,
+      logContext,
     );
 
     response.status(status).json(errorResponse);
   }
 
-  private getHttpStatus(exception: any): number {
+  private getHttpStatus(exception: KnownException): number {
     // Handle specific error types
-    if (exception.name === 'ValidationError') {
+    if (this.isValidationError(exception)) {
       return HttpStatus.BAD_REQUEST;
     }
 
     if (
-      exception.name === 'CastError' ||
+      this.isCastError(exception) ||
       exception.name === 'ObjectParameterError'
     ) {
       return HttpStatus.BAD_REQUEST;
     }
 
-    if (exception.name === 'MongoError' || exception.name === 'MongooseError') {
+    if (this.isMongoError(exception)) {
       if (exception.code === 11000) {
         return HttpStatus.CONFLICT; // Duplicate key error
       }
       return HttpStatus.INTERNAL_SERVER_ERROR;
     }
 
-    if (exception.name === 'TimeoutError') {
+    if (this.isTimeoutError(exception)) {
       return HttpStatus.REQUEST_TIMEOUT;
     }
 
-    if (exception.code === 'ECONNREFUSED' || exception.code === 'ENOTFOUND') {
-      return HttpStatus.SERVICE_UNAVAILABLE;
+    if (this.isNodeSystemError(exception)) {
+      if (exception.code === 'ECONNREFUSED' || exception.code === 'ENOTFOUND') {
+        return HttpStatus.SERVICE_UNAVAILABLE;
+      }
     }
 
     // Default to internal server error
     return HttpStatus.INTERNAL_SERVER_ERROR;
   }
 
-  private getErrorMessage(exception: any): string {
+  private getErrorMessage(exception: KnownException): string {
     // Handle specific error types with user-friendly messages
-    if (exception.name === 'ValidationError') {
+    if (this.isValidationError(exception)) {
       return 'Validation failed. Please check your input data.';
     }
 
-    if (exception.name === 'CastError') {
+    if (this.isCastError(exception)) {
       return 'Invalid ID format provided.';
     }
 
-    if (exception.name === 'MongoError' && exception.code === 11000) {
+    if (this.isMongoError(exception) && exception.code === 11000) {
       return 'Resource already exists.';
     }
 
-    if (exception.code === 'ECONNREFUSED') {
+    if (
+      this.isNodeSystemError(exception) &&
+      exception.code === 'ECONNREFUSED'
+    ) {
       return 'Service temporarily unavailable. Please try again later.';
     }
 
-    if (exception.name === 'TimeoutError') {
+    if (this.isTimeoutError(exception)) {
       return 'Request timeout. Please try again.';
     }
 
@@ -122,9 +212,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     return exception.message || 'An unexpected error occurred';
   }
 
-  private sanitizeRequestBody(body: any): any {
-    if (!body || typeof body !== 'object') {
-      return body;
+  private sanitizeRequestBody(body: unknown): Record<string, unknown> {
+    if (!body || typeof body !== 'object' || body === null) {
+      return {};
     }
 
     // Remove sensitive fields from logging
@@ -135,14 +225,52 @@ export class AllExceptionsFilter implements ExceptionFilter {
       'secret',
       'authorization',
     ];
-    const sanitized = { ...body };
+
+    const sanitized = { ...(body as Record<string, unknown>) };
 
     for (const field of sensitiveFields) {
-      if (sanitized[field]) {
+      if (field in sanitized) {
         sanitized[field] = '[REDACTED]';
       }
     }
 
     return sanitized;
+  }
+
+  private getExceptionCode(
+    exception: KnownException,
+  ): string | number | undefined {
+    if (this.isMongoError(exception) || this.isNodeSystemError(exception)) {
+      return exception.code;
+    }
+    return undefined;
+  }
+
+  // Type guard functions for better type safety
+  private isValidationError(error: unknown): error is ValidationError {
+    return error instanceof Error && error.name === 'ValidationError';
+  }
+
+  private isCastError(error: unknown): error is CastError {
+    return error instanceof Error && error.name === 'CastError';
+  }
+
+  private isMongoError(error: unknown): error is MongoError {
+    return (
+      error instanceof Error &&
+      (error.name === 'MongoError' || error.name === 'MongoServerError')
+    );
+  }
+
+  private isTimeoutError(error: unknown): error is TimeoutError {
+    return error instanceof Error && error.name === 'TimeoutError';
+  }
+
+  private isNodeSystemError(error: unknown): error is NodeSystemError {
+    return (
+      error instanceof Error &&
+      'code' in error &&
+      typeof (error as NodeSystemError).code === 'string'
+    );
   }
 }
