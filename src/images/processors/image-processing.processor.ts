@@ -4,6 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Job } from 'bull';
 import { Model } from 'mongoose';
 import {
+  ImageVariant,
   Task,
   TaskDocument,
   TaskStatus,
@@ -18,6 +19,13 @@ interface ProcessImageJob {
 interface ProcessImageFromUrlJob {
   taskId: string;
   imageUrl: string;
+}
+
+interface TaskUpdateData {
+  status: TaskStatus;
+  updatedAt: Date;
+  images?: ImageVariant[];
+  errorMessage?: string;
 }
 
 @Injectable()
@@ -144,11 +152,11 @@ export class ImageProcessingProcessor {
   private async updateTaskStatus(
     taskId: string,
     status: TaskStatus,
-    images?: any[],
+    images?: ImageVariant[],
     errorMessage?: string,
   ): Promise<void> {
     try {
-      const updateData: any = {
+      const updateData: TaskUpdateData = {
         status,
         updatedAt: new Date(),
       };
