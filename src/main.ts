@@ -1,81 +1,53 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { RateLimitMiddleware } from './common/middleware/rate-limit.middleware';
 
+// Configuration imports
+import { SwaggerConfig } from './config/swagger.config';
+import { CorsConfig } from './config/cors.config';
+import { ValidationConfig } from './config/validation.config';
+import { AppConfig } from './config/app.config';
+
+/**
+ * Bootstrap function to initialize and configure the NestJS application
+ */
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  try {
+    // Create NestJS application instance
+    const app = await NestFactory.create(AppModule);
 
-  app.useGlobalFilters(new AllExceptionsFilter(), new HttpExceptionFilter());
+    // Configure global exception filters
+    app.useGlobalFilters(new AllExceptionsFilter(), new HttpExceptionFilter());
 
-  app.use(new RateLimitMiddleware().use.bind(new RateLimitMiddleware()));
+    // Configure rate limiting middleware
+    app.use(new RateLimitMiddleware().use.bind(new RateLimitMiddleware()));
 
-  // Global validation pipe with enhanced configuration
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      disableErrorMessages: process.env.NODE_ENV === 'production',
-      validationError: {
-        target: false,
-        value: false,
-      },
-    }),
-  );
+    // Configure global validation pipe
+    app.useGlobalPipes(new ValidationPipe(ValidationConfig.getOptions()));
 
-  // Swagger documentation setup
-  const config = new DocumentBuilder()
-    .setTitle('Image Processing API')
-    .setDescription('API REST for image processing and task management')
-    .setVersion('1.0')
-    .addTag('tasks', 'Task management endpoints')
-    .addTag('images', 'Image processing endpoints')
-    .addTag('health', 'Health check endpoints')
-    .addServer(
-      process.env.API_URL || 'http://localhost:3000',
-      'Development server',
-    )
-    .build();
+    // Configure Swagger documentation
+    SwaggerConfig.setup(app);
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      displayRequestDuration: true,
-    },
-  });
+    // Configure CORS
+    app.enableCors(CorsConfig.getOptions());
 
-  // Enable CORS with specific configuration
-  app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
-    credentials: true,
-  });
+    // Configure security headers
+    app.use(CorsConfig.securityHeadersMiddleware);
 
-  // Security headers
-  app.use((req: any, res: any, next: any) => {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    next();
-  });
+    // Start the application
+    const port = AppConfig.getPort();
+    await app.listen(port);
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
-
-  console.log(`Application running on port ${port}`);
-  console.log(
-    `Swagger documentation available at http://localhost:${port}/api/docs`,
-  );
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    // Log startup information
+    AppConfig.logStartupInfo();
+  } catch (error) {
+    console.error('Error starting app:', error);
+    process.exit(1);
+  }
 }
 
-bootstrap().catch((error) => {
-  console.error('Error starting application:', error);
-  process.exit(1);
-});
+// Start the application
+bootstrap();
