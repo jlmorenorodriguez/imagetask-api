@@ -102,7 +102,7 @@ describe('FileStorageService', () => {
     it('should generate correct output path structure', () => {
       const taskId = 'test-task-123';
       const resolution = '1024';
-      const expectedPath = path.join('./output', taskId, resolution);
+      const expectedPath = path.join('test-output', taskId, resolution);
 
       const result = service.generateOutputPath(taskId, resolution);
 
@@ -125,7 +125,7 @@ describe('FileStorageService', () => {
       );
 
       const expectedPath = path.join(
-        './output',
+        'test-output',
         taskId,
         resolution,
         `${md5Hash}.${extension}`,
@@ -246,7 +246,7 @@ describe('FileStorageService', () => {
 
       await service.cleanupTaskDirectory(taskId);
 
-      const expectedPath = path.join('./output', taskId);
+      const expectedPath = path.join('test-output', taskId);
       expect(mockFs.rmdir).toHaveBeenCalledWith(expectedPath, {
         recursive: true,
       });
