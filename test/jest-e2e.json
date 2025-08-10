@@ -15,5 +15,7 @@
   "coverageReporters": ["text", "lcov", "html"],
   "setupFilesAfterEnv": ["<rootDir>/setup-e2e.ts"],
   "testTimeout": 30000,
-  "maxWorkers": 1
+  "maxWorkers": 1,
+  "forceExit": true,
+  "detectOpenHandles": true
 }
